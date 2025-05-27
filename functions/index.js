@@ -1,16 +1,17 @@
-require("dotenv").config()
+require("dotenv").config();
 
 const logger = require("firebase-functions/logger");
 const functions = require("firebase-functions");
-const express  = require("express");
+const express = require("express");
 const ftp = require("basic-ftp");
+const { PassThrough } = require("stream");
 
 const app = express();
 
 app.get("/juptr", async (req, res) => {
   const fileName = req.query.file;
   if (!fileName) {
-    logger.error("Missing 'file' query parameter")
+    logger.error("Missing 'file' query parameter");
     return res.status(400).send("Missing 'file' query parameter");
   }
 
@@ -18,42 +19,33 @@ app.get("/juptr", async (req, res) => {
   ftpClient.ftp.verbose = false;
 
   try {
-    // Connect to FTP server (replace with your config)
     await ftpClient.access({
-      host: process.env.HOST,
-      user: process.env.USER,
-      password: process.env.PASSSWORD,
+      host: process.env.FTP_HOST,
+      user: process.env.FTP_USER,
+      password: process.env.FTP_PASS,
       secure: false, // or true if FTPS
     });
+    const remoteFileName = `/juptr/${fileName}.csv`;
 
-    const remoteFileName = `${fileName}.csv`;
-
-    // Download file into a string buffer
+    const stream = new PassThrough();
     let csvData = "";
-    await ftpClient.downloadTo(
-      // Writable stream to accumulate data
-      {
-        write(chunk) {
-          csvData += chunk.toString();
-        },
-      },
-      remoteFileName
-    );
 
-    // Return CSV content with appropriate headers
+    stream.on("data", (chunk) => {
+      csvData += chunk.toString();
+    });
+
+    await ftpClient.downloadTo(stream, remoteFileName);
+
     res.setHeader("Content-Type", "text/csv");
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="${remoteFileName}"`
-    );
+    res.setHeader("Content-Disposition", `attachment; filename="${remoteFileName}"`);
     res.send(csvData);
   } catch (error) {
-    logger.error("FTP error:", error)
+    logger.error("FTP error:", error);
     res.status(500).send("Error fetching the CSV file");
   } finally {
     ftpClient.close();
   }
 });
 
-//app.use(express.json());
+// Export Firebase function
 exports.jupiterBridgeApi = functions.https.onRequest(app);
